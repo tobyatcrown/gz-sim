@@ -39,11 +39,13 @@ Missing for parity with GzScene3D:
       filename="ignition-gazebo-user-commands-system"
       name="ignition::gazebo::systems::UserCommands">
     </plugin>
+    <!--
     <plugin
-      filename="ignition-gazebo-sensors-system"
-      name="ignition::gazebo::systems::Sensors">
+      filename="ignition-gazebo-rendering-system"
+      name="ignition::gazebo::systems::Rendering">
       <render_engine>ogre2</render_engine>
     </plugin>
+    -->
 
     <gui fullscreen="0">
 

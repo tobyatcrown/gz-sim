@@ -102,10 +102,25 @@ class ignition::gazebo::RenderUtilPrivate
   /// True if the rendering component is initialized
   public: bool initialized = false;
 
+  /// \brief Create rendering entities when the rendering component is 
+  ///   uninitialized
+  /// \param[in] _ecm The entity-component manager
+  public: void CreateRenderingEntitiesUninitialized(
+              const EntityComponentManager &_ecm,
+              const UpdateInfo &_info);
+
+  /// \brief Create rendering entities when the rendering component is
+  ///   initialized
+  /// \param[in] _ecm The entity-component manager
+  public: void CreateRenderingEntitiesInitialized(
+              const EntityComponentManager &_ecm,
+              const UpdateInfo &_info);
+
   /// \brief Create rendering entities
   /// \param[in] _ecm The entity-component manager
-  public: void CreateRenderingEntities(const EntityComponentManager &_ecm,
-      const UpdateInfo &_info);
+  public: void CreateRenderingEntities(
+              const EntityComponentManager &_ecm,
+              const UpdateInfo &_info);
 
   /// \brief Remove rendering entities
   /// \param[in] _ecm The entity-component manager
@@ -1531,300 +1546,608 @@ void RenderUtilPrivate::AddSensors(const EntityComponentManager &_ecm)
   }
 }
 
+void RenderUtilPrivate::CreateRenderingEntitiesUninitialized(
+    const EntityComponentManager &_ecm, const UpdateInfo &_info)
+{
+  // Get all the new worlds
+  // TODO(anyone) Only one scene is supported for now
+  // extend the sensor system to support mutliple scenes in the future
+  _ecm.Each<components::World, components::Scene>(
+      [&](const Entity & _entity,
+        const components::World *,
+        const components::Scene *_scene)->bool
+      {
+        this->sceneManager.SetWorldId(_entity);
+        const sdf::Scene &sceneSdf = _scene->Data();
+        this->newScenes.push_back(sceneSdf);
+        return true;
+      });
+
+  _ecm.Each<components::Model, components::Name, components::Pose,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Model *,
+          const components::Name *_name,
+          const components::Pose *_pose,
+          const components::ParentEntity *_parent)->bool
+      {
+        sdf::Model model;
+        model.SetName(_name->Data());
+        model.SetRawPose(_pose->Data());
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
+        {
+          auto tupleTemp = std::make_tuple(_entity, model, _parent->Data(),
+            _info.iterations);
+          bool found = false;
+          for (auto & data : this->newModels)
+          {
+            if (std::get<0>(data) == _entity)
+            {
+              found = true;
+              break;
+            }
+          }
+          if (!found)
+            this->newModels.push_back(tupleTemp);
+          this->modelToModelEntities[_parent->Data()].push_back(_entity);
+        }
+        return true;
+      });
+
+  _ecm.Each<components::Link, components::Name, components::Pose,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Link *,
+          const components::Name *_name,
+          const components::Pose *_pose,
+          const components::ParentEntity *_parent)->bool
+      {
+        sdf::Link link;
+        link.SetName(_name->Data());
+        link.SetRawPose(_pose->Data());
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
+        {
+          auto tupleTemp = std::make_tuple(_entity, link, _parent->Data());
+          bool found = false;
+          for (auto & data : this->newLinks)
+          {
+            if (std::get<0>(data) == _entity)
+            {
+              found = true;
+              break;
+            }
+          }
+          if (!found)
+            this->newLinks.push_back(tupleTemp);
+        }
+        // used for collsions
+        this->modelToLinkEntities[_parent->Data()].push_back(_entity);
+        // used for joints
+        this->matchLinksWithEntities[_parent->Data()][_name->Data()] =
+            _entity;
+        return true;
+      });
+
+  // visuals
+  _ecm.Each<components::Visual, components::Name, components::Pose,
+            components::Geometry,
+            components::CastShadows,
+            components::Transparency,
+            components::VisibilityFlags,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Visual *,
+          const components::Name *_name,
+          const components::Pose *_pose,
+          const components::Geometry *_geom,
+          const components::CastShadows *_castShadows,
+          const components::Transparency *_transparency,
+          const components::VisibilityFlags *_visibilityFlags,
+          const components::ParentEntity *_parent)->bool
+      {
+        sdf::Visual visual;
+        visual.SetName(_name->Data());
+        visual.SetRawPose(_pose->Data());
+        visual.SetGeom(_geom->Data());
+        visual.SetCastShadows(_castShadows->Data());
+        visual.SetTransparency(_transparency->Data());
+        visual.SetVisibilityFlags(_visibilityFlags->Data());
+
+        // Optional components
+        auto material = _ecm.Component<components::Material>(_entity);
+        if (material != nullptr)
+        {
+          visual.SetMaterial(material->Data());
+        }
+
+        auto laserRetro = _ecm.Component<components::LaserRetro>(_entity);
+        if (laserRetro != nullptr)
+        {
+          visual.SetLaserRetro(laserRetro->Data());
+        }
+
+        if (auto temp = _ecm.Component<components::Temperature>(_entity))
+        {
+          // get the uniform temperature for the entity
+          this->entityTemp[_entity] =
+            std::make_tuple<float, float, std::string>(
+                temp->Data().Kelvin(), 0.0, "");
+        }
+        else
+        {
+          // entity doesn't have a uniform temperature. Check if it has
+          // a heat signature with an associated temperature range
+          auto heatSignature =
+            _ecm.Component<components::SourceFilePath>(_entity);
+          auto tempRange =
+             _ecm.Component<components::TemperatureRange>(_entity);
+          if (heatSignature && tempRange)
+          {
+            this->entityTemp[_entity] =
+              std::make_tuple<float, float, std::string>(
+                  tempRange->Data().min.Kelvin(),
+                  tempRange->Data().max.Kelvin(),
+                  std::string(heatSignature->Data()));
+          }
+        }
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
+        {
+          auto tupleTemp = std::make_tuple(_entity, visual, _parent->Data());
+          bool found = false;
+          for (auto & data : this->newVisuals)
+          {
+            if (std::get<0>(data) == _entity)
+            {
+              found = true;
+              break;
+            }
+          }
+          if (!found)
+            this->newVisuals.push_back(tupleTemp);
+          this->linkToVisualEntities[_parent->Data()].push_back(_entity);
+        }
+        return true;
+      });
+
+  // actors
+  _ecm.Each<components::Actor, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Actor *_actor,
+          const components::ParentEntity *_parent) -> bool
+      {
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
+        {
+          auto tupleTemp = std::make_tuple(
+            _entity, _actor->Data(), _parent->Data());
+          bool found = false;
+          for (auto & data : this->newActors)
+          {
+            if (std::get<0>(data) == _entity)
+            {
+              found = true;
+              break;
+            }
+          }
+          if (!found)
+            this->newActors.push_back(tupleTemp);
+        }
+        return true;
+      });
+
+  // lights
+  _ecm.Each<components::Light, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Light *_light,
+          const components::ParentEntity *_parent) -> bool
+      {
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
+        {
+          auto tupleTemp = std::make_tuple(
+            _entity, _light->Data(), _parent->Data());
+          bool found = false;
+          for (auto & data : this->newLights)
+          {
+            if (std::get<0>(data) == _entity)
+            {
+              found = true;
+              break;
+            }
+          }
+          if (!found)
+            this->newLights.push_back(tupleTemp);
+        }
+        return true;
+      });
+
+  // inertials
+  _ecm.Each<components::Inertial, components::Pose>(
+      [&](const Entity &_entity,
+          const components::Inertial *_inrElement,
+          const components::Pose *) -> bool
+      {
+        this->entityInertials[_entity] = _inrElement->Data();
+        return true;
+      });
+
+  // collisions
+  _ecm.Each<components::Collision, components::Name, components::Pose,
+            components::Geometry, components::CollisionElement,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Collision *,
+          const components::Name *,
+          const components::Pose *,
+          const components::Geometry *,
+          const components::CollisionElement *_collElement,
+          const components::ParentEntity *_parent) -> bool
+      {
+        this->entityCollisions[_entity] = _collElement->Data();
+        this->linkToCollisionEntities[_parent->Data()].push_back(_entity);
+        return true;
+      });
+
+  // joints
+  _ecm.Each<components::Joint, components::Name, components::JointType,
+              components::Pose, components::ParentEntity,
+              components::ParentLinkName, components::ChildLinkName>(
+      [&](const Entity &_entity,
+          const components::Joint * /* _joint */,
+          const components::Name *_name,
+          const components::JointType *_jointType,
+          const components::Pose *_pose,
+          const components::ParentEntity *_parentModel,
+          const components::ParentLinkName *_parentLinkName,
+          const components::ChildLinkName *_childLinkName) -> bool
+      {
+        sdf::Joint joint;
+        joint.SetName(_name->Data());
+        joint.SetType(_jointType->Data());
+        joint.SetRawPose(_pose->Data());
+
+        joint.SetParentLinkName(_parentLinkName->Data());
+        joint.SetChildLinkName(_childLinkName->Data());
+
+        auto jointAxis = _ecm.Component<components::JointAxis>(_entity);
+        auto jointAxis2 = _ecm.Component<components::JointAxis2>(_entity);
+
+        if (jointAxis)
+        {
+          joint.SetAxis(0, jointAxis->Data());
+        }
+        if (jointAxis2)
+        {
+          joint.SetAxis(1, jointAxis2->Data());
+        }
+
+        this->entityJoints[_entity] = joint;
+        this->modelToJointEntities[_parentModel->Data()].push_back(_entity);
+        return true;
+      });
+
+  // particle emitters
+  _ecm.Each<components::ParticleEmitter, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::ParticleEmitter *_emitter,
+          const components::ParentEntity *_parent) -> bool
+      {
+        auto tupleTemp = std::make_tuple(
+          _entity, _emitter->Data(), _parent->Data());
+        bool found = false;
+        for (auto & data : this->newParticleEmitters)
+        {
+          if (std::get<0>(data) == _entity)
+          {
+            found = true;
+            break;
+          }
+        }
+        if (!found)
+          this->newParticleEmitters.push_back(tupleTemp);
+        return true;
+      });
+
+  this->AddSensors(_ecm);
+  this->initialized = true;
+}
+
 //////////////////////////////////////////////////
-void RenderUtilPrivate::CreateRenderingEntities(
+void RenderUtilPrivate::CreateRenderingEntitiesInitialized(
     const EntityComponentManager &_ecm, const UpdateInfo &_info)
 {
   IGN_PROFILE("RenderUtilPrivate::CreateRenderingEntities");
-  // Treat all pre-existent entities as new at startup
-  // TODO(anyone) refactor Each and EachNew below to reduce duplicate code
-  if (!this->initialized)
-  {
-    // Get all the new worlds
-    // TODO(anyone) Only one scene is supported for now
-    // extend the sensor system to support mutliple scenes in the future
-    _ecm.Each<components::World, components::Scene>(
-        [&](const Entity & _entity,
-          const components::World *,
-          const components::Scene *_scene)->bool
-        {
-          this->sceneManager.SetWorldId(_entity);
-          const sdf::Scene &sceneSdf = _scene->Data();
-          this->newScenes.push_back(sceneSdf);
-          return true;
-        });
+  // Get all the new worlds
+  // TODO(anyone) Only one scene is supported for now
+  // extend the sensor system to support mutliple scenes in the future
+  _ecm.EachNew<components::World, components::Scene>(
+      [&](const Entity & _entity,
+        const components::World *,
+        const components::Scene *_scene)->bool
+      {
+        this->sceneManager.SetWorldId(_entity);
+        const sdf::Scene &sceneSdf = _scene->Data();
+        this->newScenes.push_back(sceneSdf);
+        return true;
+      });
 
-    _ecm.Each<components::Model, components::Name, components::Pose,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Model *,
-            const components::Name *_name,
-            const components::Pose *_pose,
-            const components::ParentEntity *_parent)->bool
+  _ecm.EachNew<components::Model, components::Name, components::Pose,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Model *,
+          const components::Name *_name,
+          const components::Pose *_pose,
+          const components::ParentEntity *_parent)->bool
+      {
+        sdf::Model model;
+        model.SetName(_name->Data());
+        model.SetRawPose(_pose->Data());
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
         {
-          sdf::Model model;
-          model.SetName(_name->Data());
-          model.SetRawPose(_pose->Data());
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
+          auto tupleTemp = std::make_tuple(_entity, model, _parent->Data(),
+            _info.iterations);
+          bool found = false;
+          for (auto & data : this->newModels)
           {
-            auto tupleTemp = std::make_tuple(_entity, model, _parent->Data(),
-              _info.iterations);
-            bool found = false;
-            for (auto & data : this->newModels)
+            if (std::get<0>(data) == _entity)
             {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
+              found = true;
+              break;
             }
-            if (!found)
-              this->newModels.push_back(tupleTemp);
-            this->modelToModelEntities[_parent->Data()].push_back(_entity);
           }
-          return true;
-        });
+          if (!found)
+            this->newModels.push_back(tupleTemp);
+          this->modelToModelEntities[_parent->Data()].push_back(_entity);
+        }
+        return true;
+      });
 
-    _ecm.Each<components::Link, components::Name, components::Pose,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Link *,
-            const components::Name *_name,
-            const components::Pose *_pose,
-            const components::ParentEntity *_parent)->bool
+  _ecm.EachNew<components::Link, components::Name, components::Pose,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Link *,
+          const components::Name *_name,
+          const components::Pose *_pose,
+          const components::ParentEntity *_parent)->bool
+      {
+        sdf::Link link;
+        link.SetName(_name->Data());
+        link.SetRawPose(_pose->Data());
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
         {
-          sdf::Link link;
-          link.SetName(_name->Data());
-          link.SetRawPose(_pose->Data());
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
+          auto tupleTemp = std::make_tuple(_entity, link, _parent->Data());
+          bool found = false;
+          for (auto & data : this->newLinks)
           {
-            auto tupleTemp = std::make_tuple(_entity, link, _parent->Data());
-            bool found = false;
-            for (auto & data : this->newLinks)
+            if (std::get<0>(data) == _entity)
             {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
+              found = true;
+              break;
             }
-            if (!found)
-              this->newLinks.push_back(tupleTemp);
           }
-          // used for collsions
-          this->modelToLinkEntities[_parent->Data()].push_back(_entity);
-          // used for joints
-          this->matchLinksWithEntities[_parent->Data()][_name->Data()] =
-              _entity;
-          return true;
-        });
+          if (!found)
+            this->newLinks.push_back(tupleTemp);
+        }
+        // used for collsions
+        this->modelToLinkEntities[_parent->Data()].push_back(_entity);
+        // used for joints
+        this->matchLinksWithEntities[_parent->Data()][_name->Data()] =
+            _entity;
+        return true;
+      });
 
-    // visuals
-    _ecm.Each<components::Visual, components::Name, components::Pose,
-              components::Geometry,
-              components::CastShadows,
-              components::Transparency,
-              components::VisibilityFlags,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Visual *,
-            const components::Name *_name,
-            const components::Pose *_pose,
-            const components::Geometry *_geom,
-            const components::CastShadows *_castShadows,
-            const components::Transparency *_transparency,
-            const components::VisibilityFlags *_visibilityFlags,
-            const components::ParentEntity *_parent)->bool
+  // visuals
+  _ecm.EachNew<components::Visual, components::Name, components::Pose,
+            components::Geometry,
+            components::CastShadows,
+            components::Transparency,
+            components::VisibilityFlags,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Visual *,
+          const components::Name *_name,
+          const components::Pose *_pose,
+          const components::Geometry *_geom,
+          const components::CastShadows *_castShadows,
+          const components::Transparency *_transparency,
+          const components::VisibilityFlags *_visibilityFlags,
+          const components::ParentEntity *_parent)->bool
+      {
+        sdf::Visual visual;
+        visual.SetName(_name->Data());
+        visual.SetRawPose(_pose->Data());
+        visual.SetGeom(_geom->Data());
+        visual.SetCastShadows(_castShadows->Data());
+        visual.SetTransparency(_transparency->Data());
+        visual.SetVisibilityFlags(_visibilityFlags->Data());
+
+        // Optional components
+        auto material = _ecm.Component<components::Material>(_entity);
+        if (material != nullptr)
         {
-          sdf::Visual visual;
-          visual.SetName(_name->Data());
-          visual.SetRawPose(_pose->Data());
-          visual.SetGeom(_geom->Data());
-          visual.SetCastShadows(_castShadows->Data());
-          visual.SetTransparency(_transparency->Data());
-          visual.SetVisibilityFlags(_visibilityFlags->Data());
+          visual.SetMaterial(material->Data());
+        }
 
-          // Optional components
-          auto material = _ecm.Component<components::Material>(_entity);
-          if (material != nullptr)
-          {
-            visual.SetMaterial(material->Data());
-          }
+        auto laserRetro = _ecm.Component<components::LaserRetro>(_entity);
+        if (laserRetro != nullptr)
+        {
+          visual.SetLaserRetro(laserRetro->Data());
+        }
 
-          auto laserRetro = _ecm.Component<components::LaserRetro>(_entity);
-          if (laserRetro != nullptr)
+        if (auto temp = _ecm.Component<components::Temperature>(_entity))
+        {
+          // get the uniform temperature for the entity
+          this->entityTemp[_entity] =
+            std::make_tuple<float, float, std::string>(
+                temp->Data().Kelvin(), 0.0, "");
+        }
+        else
+        {
+          // entity doesn't have a uniform temperature. Check if it has
+          // a heat signature with an associated temperature range
+          auto heatSignature =
+            _ecm.Component<components::SourceFilePath>(_entity);
+          auto tempRange =
+             _ecm.Component<components::TemperatureRange>(_entity);
+          if (heatSignature && tempRange)
           {
-            visual.SetLaserRetro(laserRetro->Data());
-          }
-
-          if (auto temp = _ecm.Component<components::Temperature>(_entity))
-          {
-            // get the uniform temperature for the entity
             this->entityTemp[_entity] =
               std::make_tuple<float, float, std::string>(
-                  temp->Data().Kelvin(), 0.0, "");
+                  tempRange->Data().min.Kelvin(),
+                  tempRange->Data().max.Kelvin(),
+                  std::string(heatSignature->Data()));
           }
-          else
+        }
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
+        {
+          auto tupleTemp = std::make_tuple(_entity, visual, _parent->Data());
+          bool found = false;
+          for (auto & data : this->newVisuals)
           {
-            // entity doesn't have a uniform temperature. Check if it has
-            // a heat signature with an associated temperature range
-            auto heatSignature =
-              _ecm.Component<components::SourceFilePath>(_entity);
-            auto tempRange =
-               _ecm.Component<components::TemperatureRange>(_entity);
-            if (heatSignature && tempRange)
+            if (std::get<0>(data) == _entity)
             {
-              this->entityTemp[_entity] =
-                std::make_tuple<float, float, std::string>(
-                    tempRange->Data().min.Kelvin(),
-                    tempRange->Data().max.Kelvin(),
-                    std::string(heatSignature->Data()));
+              found = true;
+              break;
             }
           }
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
+          if (!found)
+            this->newVisuals.push_back(tupleTemp);
+          this->linkToVisualEntities[_parent->Data()].push_back(_entity);
+        }
+        return true;
+      });
+
+  // actors
+  _ecm.EachNew<components::Actor, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Actor *_actor,
+          const components::ParentEntity *_parent) -> bool
+      {
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
+        {
+          auto tupleTemp = std::make_tuple(
+            _entity, _actor->Data(), _parent->Data());
+          bool found = false;
+          for (auto & data : this->newActors)
           {
-            auto tupleTemp = std::make_tuple(_entity, visual, _parent->Data());
-            bool found = false;
-            for (auto & data : this->newVisuals)
+            if (std::get<0>(data) == _entity)
             {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
+              found = true;
+              break;
             }
-            if (!found)
-              this->newVisuals.push_back(tupleTemp);
-            this->linkToVisualEntities[_parent->Data()].push_back(_entity);
           }
-          return true;
-        });
+          if (!found)
+            this->newActors.push_back(tupleTemp);
+        }
+        return true;
+      });
 
-    // actors
-    _ecm.Each<components::Actor, components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Actor *_actor,
-            const components::ParentEntity *_parent) -> bool
+  // lights
+  _ecm.EachNew<components::Light, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Light *_light,
+          const components::ParentEntity *_parent) -> bool
+      {
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
         {
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
+          auto tupleTemp = std::make_tuple(
+            _entity, _light->Data(), _parent->Data());
+          bool found = false;
+          for (auto & data : this->newLights)
           {
-            auto tupleTemp = std::make_tuple(
-              _entity, _actor->Data(), _parent->Data());
-            bool found = false;
-            for (auto & data : this->newActors)
+            if (std::get<0>(data) == _entity)
             {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
+              found = true;
+              break;
             }
-            if (!found)
-              this->newActors.push_back(tupleTemp);
           }
-          return true;
-        });
+          if (!found)
+            this->newLights.push_back(tupleTemp);
+        }
+        return true;
+      });
 
-    // lights
-    _ecm.Each<components::Light, components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Light *_light,
-            const components::ParentEntity *_parent) -> bool
+  // inertials
+  _ecm.EachNew<components::Inertial, components::Pose>(
+      [&](const Entity &_entity,
+          const components::Inertial *_inrElement,
+          const components::Pose *) -> bool
+      {
+        this->entityInertials[_entity] = _inrElement->Data();
+        return true;
+      });
+
+  // collisions
+  _ecm.EachNew<components::Collision, components::Name, components::Pose,
+            components::Geometry, components::CollisionElement,
+            components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::Collision *,
+          const components::Name *,
+          const components::Pose *,
+          const components::Geometry *,
+          const components::CollisionElement *_collElement,
+          const components::ParentEntity *_parent) -> bool
+      {
+        this->entityCollisions[_entity] = _collElement->Data();
+        this->linkToCollisionEntities[_parent->Data()].push_back(_entity);
+        return true;
+      });
+
+  // joints
+  _ecm.EachNew<components::Joint, components::Name, components::JointType,
+              components::Pose, components::ParentEntity,
+              components::ParentLinkName, components::ChildLinkName>(
+      [&](const Entity &_entity,
+          const components::Joint * /* _joint */,
+          const components::Name *_name,
+          const components::JointType *_jointType,
+          const components::Pose *_pose,
+          const components::ParentEntity *_parentModel,
+          const components::ParentLinkName *_parentLinkName,
+          const components::ChildLinkName *_childLinkName) -> bool
+      {
+        sdf::Joint joint;
+        joint.SetName(_name->Data());
+        joint.SetType(_jointType->Data());
+        joint.SetRawPose(_pose->Data());
+
+        joint.SetParentLinkName(_parentLinkName->Data());
+        joint.SetChildLinkName(_childLinkName->Data());
+
+        auto jointAxis = _ecm.Component<components::JointAxis>(_entity);
+        auto jointAxis2 = _ecm.Component<components::JointAxis2>(_entity);
+
+        if (jointAxis)
         {
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
-          {
-            auto tupleTemp = std::make_tuple(
-              _entity, _light->Data(), _parent->Data());
-            bool found = false;
-            for (auto & data : this->newLights)
-            {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
-            }
-            if (!found)
-              this->newLights.push_back(tupleTemp);
-          }
-          return true;
-        });
-
-    // inertials
-    _ecm.Each<components::Inertial, components::Pose>(
-        [&](const Entity &_entity,
-            const components::Inertial *_inrElement,
-            const components::Pose *) -> bool
+          joint.SetAxis(0, jointAxis->Data());
+        }
+        if (jointAxis2)
         {
-          this->entityInertials[_entity] = _inrElement->Data();
-          return true;
-        });
+          joint.SetAxis(1, jointAxis2->Data());
+        }
 
-    // collisions
-    _ecm.Each<components::Collision, components::Name, components::Pose,
-              components::Geometry, components::CollisionElement,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Collision *,
-            const components::Name *,
-            const components::Pose *,
-            const components::Geometry *,
-            const components::CollisionElement *_collElement,
-            const components::ParentEntity *_parent) -> bool
-        {
-          this->entityCollisions[_entity] = _collElement->Data();
-          this->linkToCollisionEntities[_parent->Data()].push_back(_entity);
-          return true;
-        });
+        this->entityJoints[_entity] = joint;
+        this->modelToJointEntities[_parentModel->Data()].push_back(_entity);
+        return true;
+      });
 
-    // joints
-    _ecm.Each<components::Joint, components::Name, components::JointType,
-                components::Pose, components::ParentEntity,
-                components::ParentLinkName, components::ChildLinkName>(
-        [&](const Entity &_entity,
-            const components::Joint * /* _joint */,
-            const components::Name *_name,
-            const components::JointType *_jointType,
-            const components::Pose *_pose,
-            const components::ParentEntity *_parentModel,
-            const components::ParentLinkName *_parentLinkName,
-            const components::ChildLinkName *_childLinkName) -> bool
-        {
-          sdf::Joint joint;
-          joint.SetName(_name->Data());
-          joint.SetType(_jointType->Data());
-          joint.SetRawPose(_pose->Data());
-
-          joint.SetParentLinkName(_parentLinkName->Data());
-          joint.SetChildLinkName(_childLinkName->Data());
-
-          auto jointAxis = _ecm.Component<components::JointAxis>(_entity);
-          auto jointAxis2 = _ecm.Component<components::JointAxis2>(_entity);
-
-          if (jointAxis)
-          {
-            joint.SetAxis(0, jointAxis->Data());
-          }
-          if (jointAxis2)
-          {
-            joint.SetAxis(1, jointAxis2->Data());
-          }
-
-          this->entityJoints[_entity] = joint;
-          this->modelToJointEntities[_parentModel->Data()].push_back(_entity);
-          return true;
-        });
-
-    // particle emitters
-    _ecm.Each<components::ParticleEmitter, components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::ParticleEmitter *_emitter,
-            const components::ParentEntity *_parent) -> bool
+  // particle emitters
+  _ecm.EachNew<components::ParticleEmitter, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::ParticleEmitter *_emitter,
+          const components::ParentEntity *_parent) -> bool
+      {
+        auto node = this->sceneManager.NodeById(_entity);
+        if (!node)
         {
           auto tupleTemp = std::make_tuple(
             _entity, _emitter->Data(), _parent->Data());
@@ -1839,320 +2162,26 @@ void RenderUtilPrivate::CreateRenderingEntities(
           }
           if (!found)
             this->newParticleEmitters.push_back(tupleTemp);
-          return true;
-        });
+        }
+        return true;
+      });
+  this->AddSensors(_ecm);
+}
 
-    this->AddSensors(_ecm);
-    this->initialized = true;
+//////////////////////////////////////////////////
+void RenderUtilPrivate::CreateRenderingEntities(
+    const EntityComponentManager &_ecm, const UpdateInfo &_info)
+{
+  IGN_PROFILE("RenderUtilPrivate::CreateRenderingEntities");
+  // Treat all pre-existent entities as new at startup
+  // TODO(anyone) refactor Each and EachNew below to reduce duplicate code
+  if (!this->initialized)
+  {
+    this->CreateRenderingEntitiesUninitialized(_ecm, _info);
   }
   else
   {
-    // Get all the new worlds
-    // TODO(anyone) Only one scene is supported for now
-    // extend the sensor system to support mutliple scenes in the future
-    _ecm.EachNew<components::World, components::Scene>(
-        [&](const Entity & _entity,
-          const components::World *,
-          const components::Scene *_scene)->bool
-        {
-          this->sceneManager.SetWorldId(_entity);
-          const sdf::Scene &sceneSdf = _scene->Data();
-          this->newScenes.push_back(sceneSdf);
-          return true;
-        });
-
-    _ecm.EachNew<components::Model, components::Name, components::Pose,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Model *,
-            const components::Name *_name,
-            const components::Pose *_pose,
-            const components::ParentEntity *_parent)->bool
-        {
-          sdf::Model model;
-          model.SetName(_name->Data());
-          model.SetRawPose(_pose->Data());
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
-          {
-            auto tupleTemp = std::make_tuple(_entity, model, _parent->Data(),
-              _info.iterations);
-            bool found = false;
-            for (auto & data : this->newModels)
-            {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
-            }
-            if (!found)
-              this->newModels.push_back(tupleTemp);
-            this->modelToModelEntities[_parent->Data()].push_back(_entity);
-          }
-          return true;
-        });
-
-    _ecm.EachNew<components::Link, components::Name, components::Pose,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Link *,
-            const components::Name *_name,
-            const components::Pose *_pose,
-            const components::ParentEntity *_parent)->bool
-        {
-          sdf::Link link;
-          link.SetName(_name->Data());
-          link.SetRawPose(_pose->Data());
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
-          {
-            auto tupleTemp = std::make_tuple(_entity, link, _parent->Data());
-            bool found = false;
-            for (auto & data : this->newLinks)
-            {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
-            }
-            if (!found)
-              this->newLinks.push_back(tupleTemp);
-          }
-          // used for collsions
-          this->modelToLinkEntities[_parent->Data()].push_back(_entity);
-          // used for joints
-          this->matchLinksWithEntities[_parent->Data()][_name->Data()] =
-              _entity;
-          return true;
-        });
-
-    // visuals
-    _ecm.EachNew<components::Visual, components::Name, components::Pose,
-              components::Geometry,
-              components::CastShadows,
-              components::Transparency,
-              components::VisibilityFlags,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Visual *,
-            const components::Name *_name,
-            const components::Pose *_pose,
-            const components::Geometry *_geom,
-            const components::CastShadows *_castShadows,
-            const components::Transparency *_transparency,
-            const components::VisibilityFlags *_visibilityFlags,
-            const components::ParentEntity *_parent)->bool
-        {
-          sdf::Visual visual;
-          visual.SetName(_name->Data());
-          visual.SetRawPose(_pose->Data());
-          visual.SetGeom(_geom->Data());
-          visual.SetCastShadows(_castShadows->Data());
-          visual.SetTransparency(_transparency->Data());
-          visual.SetVisibilityFlags(_visibilityFlags->Data());
-
-          // Optional components
-          auto material = _ecm.Component<components::Material>(_entity);
-          if (material != nullptr)
-          {
-            visual.SetMaterial(material->Data());
-          }
-
-          auto laserRetro = _ecm.Component<components::LaserRetro>(_entity);
-          if (laserRetro != nullptr)
-          {
-            visual.SetLaserRetro(laserRetro->Data());
-          }
-
-          if (auto temp = _ecm.Component<components::Temperature>(_entity))
-          {
-            // get the uniform temperature for the entity
-            this->entityTemp[_entity] =
-              std::make_tuple<float, float, std::string>(
-                  temp->Data().Kelvin(), 0.0, "");
-          }
-          else
-          {
-            // entity doesn't have a uniform temperature. Check if it has
-            // a heat signature with an associated temperature range
-            auto heatSignature =
-              _ecm.Component<components::SourceFilePath>(_entity);
-            auto tempRange =
-               _ecm.Component<components::TemperatureRange>(_entity);
-            if (heatSignature && tempRange)
-            {
-              this->entityTemp[_entity] =
-                std::make_tuple<float, float, std::string>(
-                    tempRange->Data().min.Kelvin(),
-                    tempRange->Data().max.Kelvin(),
-                    std::string(heatSignature->Data()));
-            }
-          }
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
-          {
-            auto tupleTemp = std::make_tuple(_entity, visual, _parent->Data());
-            bool found = false;
-            for (auto & data : this->newVisuals)
-            {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
-            }
-            if (!found)
-              this->newVisuals.push_back(tupleTemp);
-            this->linkToVisualEntities[_parent->Data()].push_back(_entity);
-          }
-          return true;
-        });
-
-    // actors
-    _ecm.EachNew<components::Actor, components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Actor *_actor,
-            const components::ParentEntity *_parent) -> bool
-        {
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
-          {
-            auto tupleTemp = std::make_tuple(
-              _entity, _actor->Data(), _parent->Data());
-            bool found = false;
-            for (auto & data : this->newActors)
-            {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
-            }
-            if (!found)
-              this->newActors.push_back(tupleTemp);
-          }
-          return true;
-        });
-
-    // lights
-    _ecm.EachNew<components::Light, components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Light *_light,
-            const components::ParentEntity *_parent) -> bool
-        {
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
-          {
-            auto tupleTemp = std::make_tuple(
-              _entity, _light->Data(), _parent->Data());
-            bool found = false;
-            for (auto & data : this->newLights)
-            {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
-            }
-            if (!found)
-              this->newLights.push_back(tupleTemp);
-          }
-          return true;
-        });
-
-    // inertials
-    _ecm.EachNew<components::Inertial, components::Pose>(
-        [&](const Entity &_entity,
-            const components::Inertial *_inrElement,
-            const components::Pose *) -> bool
-        {
-          this->entityInertials[_entity] = _inrElement->Data();
-          return true;
-        });
-
-    // collisions
-    _ecm.EachNew<components::Collision, components::Name, components::Pose,
-              components::Geometry, components::CollisionElement,
-              components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::Collision *,
-            const components::Name *,
-            const components::Pose *,
-            const components::Geometry *,
-            const components::CollisionElement *_collElement,
-            const components::ParentEntity *_parent) -> bool
-        {
-          this->entityCollisions[_entity] = _collElement->Data();
-          this->linkToCollisionEntities[_parent->Data()].push_back(_entity);
-          return true;
-        });
-
-    // joints
-    _ecm.EachNew<components::Joint, components::Name, components::JointType,
-                components::Pose, components::ParentEntity,
-                components::ParentLinkName, components::ChildLinkName>(
-        [&](const Entity &_entity,
-            const components::Joint * /* _joint */,
-            const components::Name *_name,
-            const components::JointType *_jointType,
-            const components::Pose *_pose,
-            const components::ParentEntity *_parentModel,
-            const components::ParentLinkName *_parentLinkName,
-            const components::ChildLinkName *_childLinkName) -> bool
-        {
-          sdf::Joint joint;
-          joint.SetName(_name->Data());
-          joint.SetType(_jointType->Data());
-          joint.SetRawPose(_pose->Data());
-
-          joint.SetParentLinkName(_parentLinkName->Data());
-          joint.SetChildLinkName(_childLinkName->Data());
-
-          auto jointAxis = _ecm.Component<components::JointAxis>(_entity);
-          auto jointAxis2 = _ecm.Component<components::JointAxis2>(_entity);
-
-          if (jointAxis)
-          {
-            joint.SetAxis(0, jointAxis->Data());
-          }
-          if (jointAxis2)
-          {
-            joint.SetAxis(1, jointAxis2->Data());
-          }
-
-          this->entityJoints[_entity] = joint;
-          this->modelToJointEntities[_parentModel->Data()].push_back(_entity);
-          return true;
-        });
-
-    // particle emitters
-    _ecm.EachNew<components::ParticleEmitter, components::ParentEntity>(
-        [&](const Entity &_entity,
-            const components::ParticleEmitter *_emitter,
-            const components::ParentEntity *_parent) -> bool
-        {
-          auto node = this->sceneManager.NodeById(_entity);
-          if (!node)
-          {
-            auto tupleTemp = std::make_tuple(
-              _entity, _emitter->Data(), _parent->Data());
-            bool found = false;
-            for (auto & data : this->newParticleEmitters)
-            {
-              if (std::get<0>(data) == _entity)
-              {
-                found = true;
-                break;
-              }
-            }
-            if (!found)
-              this->newParticleEmitters.push_back(tupleTemp);
-          }
-          return true;
-        });
-    this->AddSensors(_ecm);
+    this->CreateRenderingEntitiesInitialized(_ecm, _info);
   }
 }
 

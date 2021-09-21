@@ -18,6 +18,7 @@
 #include "ign.hh"
 
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -410,6 +411,8 @@ extern "C" int runCombined(const char *_sdfString,
   ignition::gazebo::Server server(serverConfig);
 
   // Run the server
+  //
+  ignerr << "here" << std::endl;
 
   // argc and argv are going to be passed to a QApplication. The Qt
   // documentation has a warning about these:
@@ -424,27 +427,13 @@ extern "C" int runCombined(const char *_sdfString,
   char *argv = const_cast<char *>("ign-gazebo-gui");
 
   std::vector<std::shared_ptr<ignition::gazebo::System>> runners;
-  auto app = ignition::gazebo::gui::createGui(argc, &argv, _guiConfig, runners);
+  auto app = ignition::gazebo::gui::createGui(argc, &argv, _guiConfig,
+      nullptr, true, &runners);
 
   if (nullptr != app)
   {
-    igndbg << "Found GUI runners: " << runners.size() << std::endl;
-    for (auto runner: runners)
+    for (auto runner : runners)
     {
-      auto config = dynamic_cast<ignition::gazebo::ISystemConfigure*>(runner.get());
-      if (config != nullptr) {
-        igndbg << "Config";
-      }
-
-      auto pre = dynamic_cast<ignition::gazebo::ISystemPreUpdate *>(runner.get());
-      if (pre != nullptr) {
-        igndbg << "Pre";
-      }
-
-      auto post = dynamic_cast<ignition::gazebo::ISystemPostUpdate *>(runner.get());
-      if (post != nullptr) {
-        igndbg << "Post";
-      }
       server.AddSystem(runner);
     }
 

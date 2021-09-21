@@ -15,7 +15,11 @@
  *
  */
 
-#include "ClientSystem.hh"
+#include "GuiRunnerSystem.hh"
+
+#include <memory>
+#include <set>
+#include <string>
 
 #include <ignition/common/Console.hh>
 #include <ignition/gui/Application.hh>
@@ -28,7 +32,7 @@ using namespace ignition;
 using namespace gazebo;
 
 //////////////////////////////////////////////////
-class ignition::gazebo::ClientSystem::Implementation
+class ignition::gazebo::GuiRunnerSystem::Implementation
 {
   /// \brief World name
   public: std::string worldName;
@@ -49,35 +53,33 @@ class ignition::gazebo::ClientSystem::Implementation
 };
 
 //////////////////////////////////////////////////
-ClientSystem::ClientSystem()
+GuiRunnerSystem::GuiRunnerSystem()
   : System(), dataPtr(utils::MakeUniqueImpl<Implementation>())
 {
 
 }
 
 //////////////////////////////////////////////////
-ClientSystem::~ClientSystem() = default;
+GuiRunnerSystem::~GuiRunnerSystem() = default;
 
 //////////////////////////////////////////////////
-void ClientSystem::WorldName(const std::string &_worldName)
+void GuiRunnerSystem::WorldName(const std::string &_worldName)
 {
   this->dataPtr->worldName = _worldName;
 }
 
 //////////////////////////////////////////////////
-std::string ClientSystem::WorldName() const
+std::string GuiRunnerSystem::WorldName() const
 {
   return this->dataPtr->worldName;
 }
 
 //////////////////////////////////////////////////
-void ClientSystem::Configure(const Entity &/*_entity*/,
+void GuiRunnerSystem::Configure(const Entity &/*_entity*/,
   const std::shared_ptr<const sdf::Element> &/*_sdf*/,
   EntityComponentManager &/*_ecm*/,
   EventManager &_eventMgr)
 {
-  igndbg << "ClientSystem::Configure" << std::endl;
-
   this->dataPtr->eventManager = &_eventMgr;
 
   auto win = gui::App()->findChild<ignition::gui::MainWindow *>();
@@ -88,26 +90,25 @@ void ClientSystem::Configure(const Entity &/*_entity*/,
 
 
 //////////////////////////////////////////////////
-void ClientSystem::OnPluginAdded(const std::string &_objectName)
+void GuiRunnerSystem::OnPluginAdded(const std::string &_objectName)
 {
-  igndbg << "ClientSystem::OnPluginAdded" << std::endl;
   std::lock_guard<std::mutex> lock(this->dataPtr->pluginMutex);
   this->dataPtr->pendingPlugins.insert(_objectName);
 }
 
 //////////////////////////////////////////////////
-void ClientSystem::PreUpdate(const UpdateInfo &_info,
+void GuiRunnerSystem::PreUpdate(const UpdateInfo &_info,
                              EntityComponentManager &_ecm)
 {
   // Process pending plugins first
   {
     std::lock_guard<std::mutex> lock(this->dataPtr->pluginMutex);
-    for(auto pluginName: this->dataPtr->pendingPlugins)
+    for (auto pluginName : this->dataPtr->pendingPlugins)
     {
       auto plugin = gui::App()->PluginByName(pluginName);
       if (!plugin)
       {
-        ignerr << "Failed to get plugin [" << pluginName 
+        ignerr << "Failed to get plugin [" << pluginName
                << "]" << std::endl;
         return;
       }
@@ -123,38 +124,32 @@ void ClientSystem::PreUpdate(const UpdateInfo &_info,
   bool changeEvent = _ecm.HasEntitiesMarkedForRemoval() ||
     _ecm.HasNewEntities() || _ecm.HasOneTimeComponentChanges();
   auto now = std::chrono::system_clock::now();
-  bool itsTime =  now - this->dataPtr->lastSameProcessUpdate > this->dataPtr->updatePeriod;
+  bool itsTime =
+    now - this->dataPtr->lastSameProcessUpdate > this->dataPtr->updatePeriod;
 
   if (changeEvent || itsTime)
   {
-    igndbg << "ClientSystem::PreUpdate Exec" << std::endl;
     auto plugins = gui::App()->findChildren<GuiSystem *>();
     for (auto plugin : plugins)
     {
       plugin->Update(_info, _ecm);
     }
   }
-  else
-  {
-    igndbg << "ClientSystem::PreUpdate Skip" << std::endl;
-  }
 }
 
 
 //////////////////////////////////////////////////
-void ClientSystem::PostUpdate(const UpdateInfo &_info,
+void GuiRunnerSystem::PostUpdate(const UpdateInfo &_info,
   const EntityComponentManager &_ecm)
 {
   bool changeEvent = _ecm.HasEntitiesMarkedForRemoval() ||
     _ecm.HasNewEntities() || _ecm.HasOneTimeComponentChanges();
   auto now = std::chrono::system_clock::now();
-  bool itsTime =  now - this->dataPtr->lastSameProcessUpdate > this->dataPtr->updatePeriod;
-
-  igndbg << "ClientSystem::PostUpdate: " << _info.iterations << std::endl;
+  bool itsTime =
+    now - this->dataPtr->lastSameProcessUpdate > this->dataPtr->updatePeriod;
 
   if (changeEvent || itsTime)
   {
-    igndbg << "ClientSystem::PostUpdate Exec" << std::endl;
     auto plugins = gui::App()->findChildren<GuiSystem *>();
     for (auto plugin : plugins)
     {
@@ -162,9 +157,5 @@ void ClientSystem::PostUpdate(const UpdateInfo &_info,
     }
 
     this->dataPtr->lastSameProcessUpdate = now;
-  }
-  else
-  {
-    igndbg << "ClientSystem::PostUpdate Skip" << std::endl;
   }
 }

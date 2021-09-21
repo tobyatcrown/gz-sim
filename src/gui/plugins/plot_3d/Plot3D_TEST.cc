@@ -71,7 +71,7 @@ TEST_F(Plot3D, IGN_UTILS_TEST_ENABLED_ONLY_ON_LINUX(Load))
   ignition::gazebo::EntityComponentManager ecm;
   ignition::gazebo::EventManager eventMgr;
   IGN_UTILS_WARN_IGNORE__DEPRECATED_DECLARATION
-  auto runner = new gazebo::GuiRunner("test", ecm, eventMgr, false);
+  auto runner = new gazebo::GuiRunner("test");
   runner->connect(app.get(), &gui::Application::PluginAdded,
                   runner, &gazebo::GuiRunner::OnPluginAdded);
   IGN_UTILS_WARN_RESUME__DEPRECATED_DECLARATION

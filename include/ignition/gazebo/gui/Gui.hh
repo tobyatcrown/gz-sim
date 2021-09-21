@@ -19,6 +19,7 @@
 #define IGNITION_GAZEBO_GUI_GUI_HH_
 
 #include <memory>
+#include <vector>
 #include <ignition/gui/Application.hh>
 
 #include "ignition/gazebo/config.hh"
@@ -67,8 +68,8 @@ namespace gui
   IGNITION_GAZEBO_GUI_VISIBLE
   std::unique_ptr<ignition::gui::Application> createGui(
      int &_argc, char **_argv, const char *_guiConfig,
-     std::vector<std::shared_ptr<ignition::gazebo::System>> &_runners,
-     const char *_defaultGuiConfig = nullptr, bool _loadPluginsFromSdf = true);
+     const char *_defaultGuiConfig = nullptr, bool _loadPluginsFromSdf = true,
+     std::vector<SystemPtr> *_runners = nullptr);
 
 }  // namespace gui
 }  // namespace IGNITION_GAZEBO_VERSION_NAMESPACE

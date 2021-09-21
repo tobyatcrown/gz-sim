@@ -42,13 +42,6 @@ inline namespace IGNITION_GAZEBO_VERSION_NAMESPACE {
     /// \brief Update the 3D scene based on the latest state of the ECM.
     public: void OnRender();
 
-    /// \brief This method is used to connect with the event
-    /// events::EnableSensors. It will set if the simulation is running any
-    /// sensors
-    /// \param[in] _enable True if the sensors thread is enabled, false
-    /// otherwise
-    public: void EnableSensors(bool _enable);
-
     //// \brief Pointer to the rendering scene
     public: rendering::ScenePtr scene;
 
@@ -57,9 +50,6 @@ inline namespace IGNITION_GAZEBO_VERSION_NAMESPACE {
 
     /// \brief Is the simulation running the GUI and server in the same process
     public: bool sameProcess{false};
-
-    /// \brief is the sensors system plugin running?
-    public: bool enableSensors{false};
 
     /// \brief did the first render event occur?
     public: bool emitFirstRender{false};
@@ -84,12 +74,7 @@ GzSceneManager::GzSceneManager()
 }
 
 /////////////////////////////////////////////////
-GzSceneManager::~GzSceneManager()
-{
-  this->dataPtr->eventManager = nullptr;
-  this->dataPtr->enableSensorsConn = nullptr;
-  this->dataPtr = nullptr;
-}
+GzSceneManager::~GzSceneManager() = default;
 
 /////////////////////////////////////////////////
 void GzSceneManager::Configure(EventManager &_eventMgr, bool _sameProcess)
@@ -105,14 +90,6 @@ void GzSceneManager::Configure(EventManager &_eventMgr, bool _sameProcess)
   this->dataPtr->sameProcess = _sameProcess;
 
   this->dataPtr->renderUtil.SetEventManager(_eventMgr);
-
-  if (_sameProcess)
-  {
-    this->dataPtr->enableSensorsConn =
-      _eventMgr.Connect<ignition::gazebo::events::EnableSensors>(
-        std::bind(&GzSceneManagerPrivate::EnableSensors, this->dataPtr.get(),
-          std::placeholders::_1));
-  }
 }
 
 /////////////////////////////////////////////////
@@ -131,12 +108,9 @@ void GzSceneManager::Update(const UpdateInfo &_info,
 {
   IGN_PROFILE("GzSceneManager::Update");
 
-  // When we are running with the same process
-  //  * has sensors - sensors system calls RenderUtil::Update*
-  //  * no sensors  - GzSceneManager calls RenderUtil::Update*
-  if (this->dataPtr->emitFirstRender &&
-    (!this->dataPtr->sameProcess || !this->dataPtr->enableSensors))
+  if (this->dataPtr->emitFirstRender && !this->dataPtr->sameProcess)
   {
+    igndbg << "UpdateECM" << std::endl;
     this->dataPtr->renderUtil.UpdateECM(_info, _ecm);
     this->dataPtr->renderUtil.UpdateFromECM(_info, _ecm);
   }
@@ -148,21 +122,11 @@ bool GzSceneManager::eventFilter(QObject *_obj, QEvent *_event)
   if (_event->type() == gui::events::Render::kType)
   {
     this->dataPtr->OnRender();
-    if (this->dataPtr->sameProcess)
-    {
-      this->dataPtr->eventManager->Emit<ignition::gazebo::events::Render>();
-    }
     this->dataPtr->emitFirstRender = true;
   }
 
   // Standard event processing
   return QObject::eventFilter(_obj, _event);
-}
-
-/////////////////////////////////////////////////
-void GzSceneManagerPrivate::EnableSensors(bool _enable)
-{
-  this->enableSensors = _enable;
 }
 
 /////////////////////////////////////////////////
@@ -177,7 +141,7 @@ void GzSceneManagerPrivate::OnRender()
     this->renderUtil.SetScene(this->scene);
   }
 
-  if (this->emitFirstRender && (!this->sameProcess || !this->enableSensors))
+  if (this->emitFirstRender && !this->sameProcess)
   {
     this->renderUtil.Update();
   }

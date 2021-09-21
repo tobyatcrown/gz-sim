@@ -358,7 +358,6 @@ void SensorsPrivate::Render()
     // publish data
     IGN_PROFILE("RunOnce");
     this->sensorManager.RunOnce(this->updateTime);
-    this->eventManager->Emit<events::PostRender>();
   }
   {
     IGN_PROFILE("PostRender");

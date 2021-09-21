@@ -17,7 +17,6 @@
 
 #include <ignition/common/Console.hh>
 #include <ignition/common/Profiler.hh>
-#include <ignition/common/WorkerPool.hh>
 #include <ignition/fuel_tools/Interface.hh>
 #include <ignition/gui/Application.hh>
 #include <ignition/gui/MainWindow.hh>
@@ -27,8 +26,6 @@
 #include "ignition/gazebo/components/components.hh"
 #include "ignition/gazebo/Conversions.hh"
 #include "ignition/gazebo/EntityComponentManager.hh"
-#include "ignition/gazebo/Events.hh"
-#include "ignition/gazebo/EventManager.hh"
 #include "ignition/gazebo/gui/GuiSystem.hh"
 
 #include "GuiRunner.hh"
@@ -39,33 +36,11 @@ using namespace gazebo;
 /////////////////////////////////////////////////
 class ignition::gazebo::GuiRunner::Implementation
 {
-  public: Implementation(gazebo::EntityComponentManager &_ecm,
-    gazebo::EventManager &_eventMgr)
-  : ecm(_ecm), eventMgr(_eventMgr)
-  {
-  }
-
   /// \brief Update the plugins.
   public: void UpdatePlugins();
 
-  /// \brief This method will be executed when a UpdatePlugins event is
-  /// received.
-  void UpdatePluginsEvent();
-
-  /// \brief This method will update the plugins in one of the worker threads
-  public: void UpdatePluginsFromEvent();
-
-  /// \brief Connection to the UpdatePlugins event.
-  public: ignition::common::ConnectionPtr UpdatePluginsConn;
-
   /// \brief Entity-component manager.
-  public: gazebo::EntityComponentManager &ecm;
-
-  /// \brief Event manager.
-  public: gazebo::EventManager &eventMgr;
-
-  /// \brief Is the GUI and server running in the same process?
-  public: bool sameProcess = false;
+  public: gazebo::EntityComponentManager ecm;
 
   /// \brief Transport node.
   public: transport::Node node{};
@@ -84,24 +59,12 @@ class ignition::gazebo::GuiRunner::Implementation
 
   /// \brief The plugin update thread..
   public: std::thread updateThread;
-
-  /// \brief A pool of worker threads.
-  public: common::WorkerPool pool;
-
-  /// \brief Keep track of the last time the update has been run. Only applies
-  /// to same process.
-  public: std::chrono::time_point<std::chrono::system_clock>
-      lastSameProcessUpdate{std::chrono::system_clock::now()};
 };
 
 /////////////////////////////////////////////////
-GuiRunner::GuiRunner(const std::string &_worldName,
-  EntityComponentManager &_ecm, gazebo::EventManager &_eventMgr,
-  bool _sameProcess)
-  : dataPtr(utils::MakeUniqueImpl<Implementation>(_ecm, _eventMgr))
+GuiRunner::GuiRunner(const std::string &_worldName)
+  : dataPtr(utils::MakeUniqueImpl<Implementation>())
 {
-  this->dataPtr->sameProcess = _sameProcess;
-
   this->setProperty("worldName", QString::fromStdString(_worldName));
 
   auto win = gui::App()->findChild<ignition::gui::MainWindow *>();
@@ -128,32 +91,25 @@ GuiRunner::GuiRunner(const std::string &_worldName,
 
   this->RequestState();
 
-  // When running in the same process, the server drives the update loop through
-  // the ClientUpdate event.
-  if (this->dataPtr->sameProcess)
+  ignerr << "Running GuiRunner" << std::endl;
+
+  // Periodically update the plugins
+  // \todo(anyone) Move the global variables to GuiRunner::Implementation on v5
+  this->dataPtr->running = true;
+  /*
+  this->dataPtr->updateThread = std::thread([&]()
   {
-    this->dataPtr->UpdatePluginsConn =
-      _eventMgr.Connect<ignition::gazebo::events::ClientUpdate>(
-        std::bind(&Implementation::UpdatePluginsEvent, this->dataPtr.get()));
-  }
-  // When running in a separate process, periodically update GUI plugins in a
-  // separate thread
-  else
-  {
-    this->dataPtr->running = true;
-    this->dataPtr->updateThread = std::thread([&]()
+    while (this->dataPtr->running)
     {
-      while (this->dataPtr->running)
       {
-        {
-          std::lock_guard<std::mutex> lock(this->dataPtr->updateMutex);
-          this->dataPtr->UpdatePlugins();
-        }
-        // This is roughly a 30Hz update rate.
-        std::this_thread::sleep_for(std::chrono::milliseconds(33));
+        std::lock_guard<std::mutex> lock(this->dataPtr->updateMutex);
+        this->dataPtr->UpdatePlugins();
       }
-    });
-  }
+      // This is roughly a 30Hz update rate.
+      std::this_thread::sleep_for(std::chrono::milliseconds(33));
+    }
+  });
+  */
 }
 
 /////////////////////////////////////////////////
@@ -199,23 +155,10 @@ void GuiRunner::RequestState()
 }
 
 /////////////////////////////////////////////////
-void GuiRunner::OnPluginAdded(const QString &_objectName)
+void GuiRunner::OnPluginAdded(const QString &)
 {
-  auto plugin = gui::App()->PluginByName(_objectName.toStdString());
-  if (!plugin)
-  {
-    ignerr << "Failed to get plugin [" << _objectName.toStdString()
-           << "]" << std::endl;
-    return;
-  }
-
-  auto guiSystem = dynamic_cast<GuiSystem *>(plugin.get());
-
-  // Do nothing for pure ign-gui plugins
-  if (!guiSystem)
-    return;
-
-  guiSystem->Configure(this->dataPtr->eventMgr, this->dataPtr->sameProcess);
+  // This function used to call Update on the plugin, but that's no longer
+  // necessary. The function is left here for ABI compatibility.
 }
 
 /////////////////////////////////////////////////
@@ -244,6 +187,8 @@ void GuiRunner::OnState(const msgs::SerializedStepMap &_msg)
   IGN_PROFILE_THREAD_NAME("GuiRunner::OnState");
   IGN_PROFILE("GuiRunner::Update");
 
+  igndbg << "OnState" << std::endl;
+
   std::lock_guard<std::mutex> lock(this->dataPtr->updateMutex);
   this->dataPtr->ecm.SetState(_msg.state());
 
@@ -262,48 +207,5 @@ void GuiRunner::Implementation::UpdatePlugins()
   {
     plugin->Update(this->updateInfo, this->ecm);
   }
-
-  // GUIRunner when is running in the same process should not make this call
-  // This is already handle by the Simulation Runner
-  if (!this->sameProcess)
-  {
-    this->ecm.ClearRemovedComponents();
-  }
-}
-
-/////////////////////////////////////////////////
-void GuiRunner::Implementation::UpdatePluginsFromEvent()
-{
-  std::lock_guard<std::mutex> lock(this->updateMutex);
-  this->UpdatePlugins();
-}
-
-/////////////////////////////////////////////////
-void GuiRunner::Implementation::UpdatePluginsEvent()
-{
-  this->updateMutex.lock();
-
-  // 30 Hz
-  auto updatePeriod = std::chrono::milliseconds(1000/60);
-
-  bool changeEvent = this->ecm.HasEntitiesMarkedForRemoval() ||
-    this->ecm.HasNewEntities() || this->ecm.HasOneTimeComponentChanges();
-  auto now = std::chrono::system_clock::now();
-  bool itsTime =  now - this->lastSameProcessUpdate > updatePeriod;
-  this->updateMutex.unlock();
-
-  if (changeEvent || itsTime)
-  {
-    // Louise: What happens if the server is already running the next
-    // PreUpdate and modifying the ECM while gui plugins are still
-    // reading from it?
-    this->updateMutex.lock();
-    this->pool.AddWork(std::bind(
-      &GuiRunner::Implementation::UpdatePluginsFromEvent, this));
-    this->lastSameProcessUpdate = now;
-    this->updateMutex.unlock();
-    this->pool.WaitForResults();
-    this->updateMutex.lock();
-    this->updateMutex.unlock();
-  }
+  this->ecm.ClearRemovedComponents();
 }

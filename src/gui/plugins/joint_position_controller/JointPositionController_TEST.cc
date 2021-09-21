@@ -65,7 +65,7 @@ TEST_F(JointPositionControllerGui, IGN_UTILS_TEST_ENABLED_ONLY_ON_LINUX(Load))
   // Create GUI runner to handle gazebo::gui plugins
   ignition::gazebo::EntityComponentManager ecm;
   ignition::gazebo::EventManager eventMgr;
-  auto runner = new gazebo::GuiRunner("test", ecm, eventMgr, false);
+  auto runner = new gazebo::GuiRunner("test");
   runner->connect(app.get(), &gui::Application::PluginAdded,
                   runner, &gazebo::GuiRunner::OnPluginAdded);
   runner->setParent(gui::App());
@@ -152,9 +152,7 @@ TEST_F(JointPositionControllerGui,
 
   // Create GUI runner to handle gazebo::gui plugins
   // TODO(anyone) Remove deprecation guard once GuiRunner becomes private
-  ignition::gazebo::EntityComponentManager ecm2;
-  ignition::gazebo::EventManager eventMgr;
-  auto runner = new gazebo::GuiRunner("test", ecm2, eventMgr, false);
+  auto runner = new gazebo::GuiRunner("test");
   runner->connect(app.get(), &gui::Application::PluginAdded,
                   runner, &gazebo::GuiRunner::OnPluginAdded);
   runner->setParent(gui::App());

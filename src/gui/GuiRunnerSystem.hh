@@ -15,9 +15,11 @@
  *
  */
 
-#ifndef IGNITION_GAZEBO_GUI_CLIENTSYSTEM_HH_
-#define IGNITION_GAZEBO_GUI_CLIENTSYSTEM_HH_
+#ifndef IGNITION_GAZEBO_GUI_GUIRUNNERSYSTEM_HH_
+#define IGNITION_GAZEBO_GUI_GUIRUNNERSYSTEM_HH_
 
+#include <memory>
+#include <set>
 #include <string>
 
 #include <ignition/utils/ImplPtr.hh>
@@ -33,15 +35,15 @@ namespace ignition
 namespace gazebo
 {
 
-class ClientSystem:
+class GuiRunnerSystem:
   public System,
   public ISystemConfigure,
   public ISystemPreUpdate,
   public ISystemPostUpdate
 {
-  public: ClientSystem();
+  public: GuiRunnerSystem();
 
-  public: ~ClientSystem() final;
+  public: ~GuiRunnerSystem();
 
   public: void WorldName(const std::string &_worldName);
 
@@ -69,4 +71,4 @@ class ClientSystem:
 };
 }  // namespace gazebo
 }  // namespace ignition
-#endif  // IGNITION_GAZEBO_GUI_CLIENTSYSTEM_HH_
+#endif  // IGNITION_GAZEBO_GUI_GUIRUNNERSYSTEM_HH_

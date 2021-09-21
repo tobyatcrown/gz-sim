@@ -43,15 +43,8 @@ class IGNITION_GAZEBO_GUI_VISIBLE GuiRunner : public QObject
 
   /// \brief Constructor
   /// \param[in] _worldName World name.
-  /// \param[in] _ecm Entity-component manager.
-  /// \param[in] _eventMgr Event manager
-  /// \param[in] _sameProcess are the server and gui running in the same
-  /// process ?
   /// \todo Move to src/gui on v6.
-  public: GuiRunner(
-      const std::string &_worldName, EntityComponentManager &_ecm,
-      EventManager &_eventMgr,
-      bool _sameProcess);
+  public: GuiRunner(const std::string &_worldName);
 
   /// \brief Destructor
   public: ~GuiRunner() override;

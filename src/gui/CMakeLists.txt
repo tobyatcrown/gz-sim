@@ -1,9 +1,9 @@
 set (gui_sources
   AboutDialogHandler.cc
-  ClientSystem.cc
   Gui.cc
   GuiFileHandler.cc
   GuiRunner.cc
+  GuiRunnerSystem.cc
   PathManager.cc
 )
 

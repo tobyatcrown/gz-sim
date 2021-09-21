@@ -79,6 +79,9 @@ namespace ignition
       public: virtual ~System() = default;
     };
 
+    /// \brief Alias to a shared pointer to system
+    using SystemPtr = std::shared_ptr<System>;
+
     /// \class ISystemConfigure ISystem.hh ignition/gazebo/System.hh
     /// \brief Interface for a system that implements optional configuration
     ///
