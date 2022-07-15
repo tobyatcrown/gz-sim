@@ -23,7 +23,7 @@
 #include <gz/common/Util.hh>
 #include <gz/utils/ExtraTestMacros.hh>
 
-#include "gz/sim/test_config.hh"  // NOLINT(build/include)
+#include "test_config.hh"  // NOLINT(build/include)
 
 static const std::string kBinPath(PROJECT_BINARY_PATH);
 
@@ -102,7 +102,7 @@ TEST(CmdLine, GZ_UTILS_TEST_DISABLED_ON_WIN32(CachedFuelWorld))
 }
 
 /////////////////////////////////////////////////
-TEST(CmdLine, GZ_UTILS_TEST_DISABLED_ON_WIN32(GazeboServer))
+TEST(CmdLine, GZ_UTILS_TEST_DISABLED_ON_WIN32(SimServer))
 {
   std::string cmd = kGzCommand + " -r -v 4 --iterations 5 " +
     std::string(PROJECT_SOURCE_PATH) + "/test/worlds/plugins.sdf";

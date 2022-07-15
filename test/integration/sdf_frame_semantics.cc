@@ -32,7 +32,7 @@
 #include "gz/sim/Server.hh"
 #include "gz/sim/SystemLoader.hh"
 #include "gz/sim/Types.hh"
-#include "gz/sim/test_config.hh"
+#include "test_config.hh"
 
 #include "gz/sim/components/Collision.hh"
 #include "gz/sim/components/Link.hh"
@@ -506,7 +506,7 @@ TEST_F(SdfFrameSemanticsTest,
   gz::common::setenv("GZ_SIM_RESOURCE_PATH", path.c_str());
   gz::sim::ServerConfig serverConfig;
   serverConfig.SetResourceCache(path);
-  serverConfig.SetPhysicsEngine("libignition-physics-tpe-plugin.so");
+  serverConfig.SetPhysicsEngine("gz-physics-tpe-plugin");
 
   const std::string sdfFile = std::string(PROJECT_SOURCE_PATH) +
     "/test/worlds/include_nested_models.sdf";
@@ -569,7 +569,7 @@ TEST_F(SdfFrameSemanticsTest,
   gz::common::setenv("GZ_SIM_RESOURCE_PATH", path.c_str());
   gz::sim::ServerConfig serverConfig;
   serverConfig.SetResourceCache(path);
-  serverConfig.SetPhysicsEngine("libignition-physics-dartsim-plugin.so");
+  serverConfig.SetPhysicsEngine("gz-physics-dartsim-plugin");
 
   const std::string sdfFile = std::string(PROJECT_SOURCE_PATH) +
     "/test/worlds/include_nested_models.sdf";

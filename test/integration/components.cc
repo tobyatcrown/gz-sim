@@ -85,7 +85,7 @@
 #include "gz/sim/components/ThreadPitch.hh"
 #include "gz/sim/components/Visual.hh"
 #include "gz/sim/components/World.hh"
-#include "gz/sim/test_config.hh"  // NOLINT(build/include)
+#include "test_config.hh"  // NOLINT(build/include)
 #include "../helpers/EnvTestFixture.hh"
 
 using namespace gz;
@@ -1233,7 +1233,7 @@ TEST_F(ComponentsTest, ModelSdf)
     << "      <real_time_factor>1.0</real_time_factor>"
     << "    </physics>"
     << "    <plugin"
-    << "      filename=\"ignition-gazebo-physics-system\""
+    << "      filename=\"gz-sim-physics-system\""
     << "      name=\"gz::sim::systems::Physics\">"
     << "    </plugin>"
     << "    <model name='my_model'>"

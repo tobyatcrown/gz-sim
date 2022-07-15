@@ -22,7 +22,7 @@
 #include <gz/utils/ExtraTestMacros.hh>
 
 #include "gz/sim/Server.hh"
-#include "gz/sim/test_config.hh"
+#include "test_config.hh"
 
 #include "../helpers/EnvTestFixture.hh"
 
@@ -248,7 +248,7 @@ TEST_F(TouchPluginTest, GZ_UTILS_TEST_DISABLED_ON_WIN32(SpawnedEntities))
           </sensor>
         </link>
         <plugin
-          filename="libignition-gazebo-touchplugin-system.so"
+          filename="gz-sim-touchplugin-system"
           name="gz::sim::systems::TouchPlugin">
           <target>green_box_for_white</target>
           <time>0.2</time>
