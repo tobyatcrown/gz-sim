@@ -170,7 +170,6 @@ class gz::sim::systems::PhysicsPrivate
           gz::physics::sdf::ConstructSdfModel,
           gz::physics::sdf::ConstructSdfWorld,
           gz::physics::GetLinkFromModel,
-          gz::physics::GetJointFromModel,
           gz::physics::GetShapeFromLink
           >{};
 
@@ -466,6 +465,7 @@ class gz::sim::systems::PhysicsPrivate
   /// \brief Feature list to handle joints.
   public: struct JointFeatureList : gz::physics::FeatureList<
             MinimumFeatureList,
+            gz::physics::GetJointFromModel,
             gz::physics::GetBasicJointProperties,
             gz::physics::GetBasicJointState,
             gz::physics::SetBasicJointState>{};
