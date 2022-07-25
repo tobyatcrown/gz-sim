@@ -46,8 +46,7 @@ function(gz_add_system system_name)
 
   gz_add_component(${system_name}
     SOURCES ${sources}
-    GET_TARGET_NAME system_target
-    CXX_STANDARD 17)
+    GET_TARGET_NAME system_target)
 
   target_link_libraries(${system_target}
     PUBLIC
@@ -78,6 +77,9 @@ function(gz_add_system system_name)
   # The library created by `gz_add_component` includes the gz-sim version
   # (i.e. libgz-gazebo1-name-system.so), but for portability of SDF
   # files, we also install an unversioned symlink into the same versioned folder.
+  #
+  # NOTE(CH3): On migration of the CMake project name, ignition-gazebo -> gz-sim
+  # so the generated library target WILL CHANGE
   set(versioned ${CMAKE_SHARED_LIBRARY_PREFIX}${system_target}${CMAKE_SHARED_LIBRARY_SUFFIX})
   set(unversioned ${CMAKE_SHARED_LIBRARY_PREFIX}${PROJECT_NAME_NO_VERSION_LOWER}-${system_name}${CMAKE_SHARED_LIBRARY_SUFFIX})
   if(WIN32)
