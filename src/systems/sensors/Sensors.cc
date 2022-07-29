@@ -32,6 +32,7 @@
 #include <gz/math/Helpers.hh>
 
 #include <gz/rendering/Scene.hh>
+#include <gz/sensors/BoundingBoxCameraSensor.hh>
 #include <gz/sensors/CameraSensor.hh>
 #include <gz/sensors/DepthCameraSensor.hh>
 #include <gz/sensors/GpuLidarSensor.hh>
@@ -44,6 +45,7 @@
 
 #include "gz/sim/components/Atmosphere.hh"
 #include "gz/sim/components/BatterySoC.hh"
+#include "gz/sim/components/BoundingBoxCamera.hh"
 #include "gz/sim/components/Camera.hh"
 #include "gz/sim/components/DepthCamera.hh"
 #include "gz/sim/components/GpuLidar.hh"
@@ -619,6 +621,7 @@ void Sensors::PostUpdate(const UpdateInfo &_info,
          _ecm.HasComponentType(components::RgbdCamera::typeId) ||
          _ecm.HasComponentType(components::ThermalCamera::typeId) ||
          _ecm.HasComponentType(components::SegmentationCamera::typeId) ||
+         _ecm.HasComponentType(components::BoundingBoxCamera::typeId) ||
          _ecm.HasComponentType(components::WideAngleCamera::typeId)))
     {
       gzdbg << "Initialization needed" << std::endl;
@@ -791,6 +794,11 @@ std::string Sensors::CreateSensor(const Entity &_entity,
   {
     sensor = this->dataPtr->sensorManager.CreateSensor<
       sensors::ThermalCameraSensor>(_sdf);
+  }
+  else if (_sdf.Type() == sdf::SensorType::BOUNDINGBOX_CAMERA)
+  {
+    sensor = this->dataPtr->sensorManager.CreateSensor<
+      sensors::BoundingBoxCameraSensor>(_sdf);
   }
   else if (_sdf.Type() == sdf::SensorType::SEGMENTATION_CAMERA)
   {
