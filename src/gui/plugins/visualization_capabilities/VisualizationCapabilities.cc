@@ -1384,7 +1384,7 @@ rendering::MaterialPtr VisualizationCapabilitiesPrivate::CreateMaterial(
         std::string fullPath = common::findFile(
             asFullPath(roughnessMap, _material.FilePath()));
         if (!fullPath.empty())
-          material->SetRoughnessMap(fullPath);
+          material->SetRoughnessMap(fullPath, nullptr);
         else
           gzerr << "Unable to find file [" << roughnessMap << "]\n";
       }
@@ -1396,7 +1396,7 @@ rendering::MaterialPtr VisualizationCapabilitiesPrivate::CreateMaterial(
         std::string fullPath = common::findFile(
             asFullPath(metalnessMap, _material.FilePath()));
         if (!fullPath.empty())
-          material->SetMetalnessMap(fullPath);
+          material->SetMetalnessMap(fullPath, nullptr);
         else
           gzerr << "Unable to find file [" << metalnessMap << "]\n";
       }
@@ -1416,7 +1416,7 @@ rendering::MaterialPtr VisualizationCapabilitiesPrivate::CreateMaterial(
           asFullPath(albedoMap, _material.FilePath()));
       if (!fullPath.empty())
       {
-        material->SetTexture(fullPath);
+        material->SetTexture(fullPath, nullptr);
         // Use alpha channel for transparency
         material->SetAlphaFromTexture(true, 0.5, _material.DoubleSided());
       }
@@ -1431,7 +1431,7 @@ rendering::MaterialPtr VisualizationCapabilitiesPrivate::CreateMaterial(
       std::string fullPath = common::findFile(
           asFullPath(normalMap, _material.FilePath()));
       if (!fullPath.empty())
-        material->SetNormalMap(fullPath);
+        material->SetNormalMap(fullPath, nullptr);
       else
         gzerr << "Unable to find file [" << normalMap << "]\n";
     }
@@ -1444,7 +1444,7 @@ rendering::MaterialPtr VisualizationCapabilitiesPrivate::CreateMaterial(
       std::string fullPath = common::findFile(
           asFullPath(environmentMap, _material.FilePath()));
       if (!fullPath.empty())
-        material->SetEnvironmentMap(fullPath);
+        material->SetEnvironmentMap(fullPath, nullptr);
       else
         gzerr << "Unable to find file [" << environmentMap << "]\n";
     }
@@ -1456,7 +1456,7 @@ rendering::MaterialPtr VisualizationCapabilitiesPrivate::CreateMaterial(
       std::string fullPath = common::findFile(
           asFullPath(emissiveMap, _material.FilePath()));
       if (!fullPath.empty())
-        material->SetEmissiveMap(fullPath);
+        material->SetEmissiveMap(fullPath, nullptr);
       else
         gzerr << "Unable to find file [" << emissiveMap << "]\n";
     }
@@ -1470,7 +1470,7 @@ rendering::MaterialPtr VisualizationCapabilitiesPrivate::CreateMaterial(
       if (!fullPath.empty())
       {
         unsigned int uvSet = workflow->LightMapTexCoordSet();
-        material->SetLightMap(fullPath, uvSet);
+        material->SetLightMap(fullPath, nullptr, uvSet);
       }
       else
       {
