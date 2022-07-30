@@ -1122,6 +1122,7 @@ void PhysicsPrivate::CreateModelEntities(const EntityComponentManager &_ecm,
           else
           {
             auto modelPtrPhys = worldPtrPhys->ConstructModel(model);
+
             this->entityModelMap.AddEntity(_entity, modelPtrPhys);
             this->topLevelModelMap.insert(std::make_pair(_entity,
                 topLevelModel(_entity, _ecm)));
@@ -1273,7 +1274,23 @@ void PhysicsPrivate::CreateLinkEntities(const EntityComponentManager &_ecm,
           link.SetInertial(inertial->Data());
         }
 
-        auto linkPtrPhys = modelPtrPhys->ConstructLink(link);
+        auto constructLinkFeature = 
+          this->entityModelMap.EntityCast<ConstructSdfLinkFeatureList>(_parent->Data());
+
+        if (!constructLinkFeature)
+        {
+            static bool informed{false};
+            if (!informed)
+            {
+              gzdbg << "Attempting to construct sdf link, but the "
+                     << "physics engine doesn't support feature "
+                     << "[ConstructSdfLinkFeature]." << std::endl;
+              informed = true;
+            }
+            return true;
+        }
+
+        auto linkPtrPhys = constructLinkFeature->ConstructLink(link);
         this->entityLinkMap.AddEntity(_entity, linkPtrPhys);
         this->topLevelModelMap.insert(std::make_pair(_entity,
             topLevelModel(_entity, _ecm)));
