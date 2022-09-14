@@ -135,6 +135,7 @@
 #include "gz/sim/components/Recreate.hh"
 #include "gz/sim/components/SelfCollide.hh"
 #include "gz/sim/components/SlipComplianceCmd.hh"
+#include "gz/sim/components/SphericalCoordinates.hh"
 #include "gz/sim/components/Static.hh"
 #include "gz/sim/components/ThreadPitch.hh"
 #include "gz/sim/components/World.hh"
@@ -1274,8 +1275,9 @@ void PhysicsPrivate::CreateLinkEntities(const EntityComponentManager &_ecm,
           link.SetInertial(inertial->Data());
         }
 
-        auto constructLinkFeature = 
-          this->entityModelMap.EntityCast<ConstructSdfLinkFeatureList>(_parent->Data());
+        auto constructLinkFeature =
+          this->entityModelMap.EntityCast<ConstructSdfLinkFeatureList>(
+            _parent->Data());
 
         if (!constructLinkFeature)
         {
@@ -1469,7 +1471,17 @@ void PhysicsPrivate::CreateCollisionEntities(const EntityComponentManager &_ecm,
           // DEM
           else
           {
+            auto worldEntity = _ecm.EntityByComponents(components::World());
+            auto sphericalCoordinatesComponent =
+              _ecm.Component<components::SphericalCoordinates>(
+                worldEntity);
+
             auto dem = std::make_shared<common::Dem>();
+            if (sphericalCoordinatesComponent)
+            {
+              dem->SetSphericalCoordinates(
+                  sphericalCoordinatesComponent->Data());
+            }
             if (dem->Load(fullPath) < 0)
             {
               gzerr << "Failed to load heightmap dem data from ["

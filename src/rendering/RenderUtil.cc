@@ -52,6 +52,7 @@
 #include <gz/rendering/Scene.hh>
 
 #include "gz/sim/components/Actor.hh"
+#include "gz/sim/components/BoundingBoxCamera.hh"
 #include "gz/sim/components/Camera.hh"
 #include "gz/sim/components/CastShadows.hh"
 #include "gz/sim/components/ChildLinkName.hh"
@@ -79,6 +80,7 @@
 #include "gz/sim/components/SegmentationCamera.hh"
 #include "gz/sim/components/SemanticLabel.hh"
 #include "gz/sim/components/SourceFilePath.hh"
+#include "gz/sim/components/SphericalCoordinates.hh"
 #include "gz/sim/components/Temperature.hh"
 #include "gz/sim/components/TemperatureRange.hh"
 #include "gz/sim/components/ThermalCamera.hh"
@@ -777,6 +779,18 @@ void RenderUtil::UpdateFromECM(const UpdateInfo &_info,
   this->dataPtr->FindInertialLinks(_ecm);
   this->dataPtr->FindJointModels(_ecm);
   this->dataPtr->FindCollisionLinks(_ecm);
+
+  // Get the SphericalCoordinate object from the world
+  // and supply it to the SceneManager
+  auto worldEntity = _ecm.EntityByComponents(components::World());
+  auto sphericalCoordinatesComponent =
+    _ecm.Component<components::SphericalCoordinates>(
+        worldEntity);
+  if (sphericalCoordinatesComponent)
+  {
+    this->dataPtr->sceneManager.SetSphericalCoordinates(
+        sphericalCoordinatesComponent->Data());
+  }
 }
 
 //////////////////////////////////////////////////
@@ -1645,6 +1659,7 @@ void RenderUtilPrivate::CreateEntitiesFirstUpdate(
   const std::string thermalCameraSuffix{"/image"};
   const std::string gpuLidarSuffix{"/scan"};
   const std::string segmentationCameraSuffix{"/segmentation"};
+  const std::string boundingBoxCameraSuffix{"/boundingbox"};
   const std::string wideAngleCameraSuffix{"/image"};
 
   // Get all the new worlds
@@ -1887,6 +1902,17 @@ void RenderUtilPrivate::CreateEntitiesFirstUpdate(
           return true;
         });
 
+    // Create bounding box cameras
+    _ecm.Each<components::BoundingBoxCamera, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::BoundingBoxCamera *_boundingBoxCamera,
+          const components::ParentEntity *_parent)->bool
+        {
+          this->AddNewSensor(_ecm, _entity, _boundingBoxCamera->Data(),
+            _parent->Data(), boundingBoxCameraSuffix);
+          return true;
+        });
+
     // Create wide angle cameras
     _ecm.Each<components::WideAngleCamera, components::ParentEntity>(
       [&](const Entity &_entity,
@@ -1910,6 +1936,7 @@ void RenderUtilPrivate::CreateEntitiesRuntime(
   const std::string thermalCameraSuffix{"/image"};
   const std::string gpuLidarSuffix{"/scan"};
   const std::string segmentationCameraSuffix{"/segmentation"};
+  const std::string boundingBoxCameraSuffix{"/boundingbox"};
   const std::string wideAngleCameraSuffix{"/image"};
 
   // Get all the new worlds
@@ -2153,6 +2180,17 @@ void RenderUtilPrivate::CreateEntitiesRuntime(
           return true;
         });
 
+    // Create bounding box cameras
+    _ecm.EachNew<components::BoundingBoxCamera, components::ParentEntity>(
+      [&](const Entity &_entity,
+          const components::BoundingBoxCamera *_boundingBoxCamera,
+          const components::ParentEntity *_parent)->bool
+        {
+          this->AddNewSensor(_ecm, _entity, _boundingBoxCamera->Data(),
+            _parent->Data(), boundingBoxCameraSuffix);
+          return true;
+        });
+
     // Create wide angle cameras
     _ecm.EachNew<components::WideAngleCamera, components::ParentEntity>(
       [&](const Entity &_entity,
@@ -2324,6 +2362,16 @@ void RenderUtilPrivate::UpdateRenderingEntities(
         return true;
       });
 
+  // Update bounding box cameras
+  _ecm.Each<components::BoundingBoxCamera, components::Pose>(
+      [&](const Entity &_entity,
+        const components::BoundingBoxCamera *,
+        const components::Pose *_pose)->bool
+      {
+        this->entityPoses[_entity] = _pose->Data();
+        return true;
+      });
+
   // Update wide angle cameras
   _ecm.Each<components::WideAngleCamera, components::Pose>(
       [&](const Entity &_entity,
@@ -2464,6 +2512,14 @@ void RenderUtilPrivate::RemoveRenderingEntities(
         return true;
       });
 
+  // bounding box cameras
+  _ecm.EachRemoved<components::BoundingBoxCamera>(
+    [&](const Entity &_entity, const components::BoundingBoxCamera *)->bool
+      {
+        this->removeEntities[_entity] = _info.iterations;
+        return true;
+      });
+
   // wide angle cameras
   _ecm.EachRemoved<components::WideAngleCamera>(
     [&](const Entity &_entity, const components::WideAngleCamera *)->bool
@@ -2527,11 +2583,20 @@ void RenderUtil::Init()
   rendering::setPluginPaths(pluginPath.PluginPaths());
 
   std::map<std::string, std::string> params;
+#ifdef __APPLE__
+  // TODO(srmainwaring): implement facility for overriding the default
+  //    graphics API in macOS, in which case there are restrictions on
+  //    the version of OpenGL used.
+  params["metal"] = "1";
+#else
   if (this->dataPtr->useCurrentGLContext)
     params["useCurrentGLContext"] = "1";
+#endif
+
   if (this->dataPtr->isHeadlessRendering)
     params["headless"] = "1";
   params["winID"] = this->dataPtr->winID;
+
   this->dataPtr->engine = rendering::engine(this->dataPtr->engineName, params);
   if (!this->dataPtr->engine)
   {
