@@ -637,11 +637,6 @@ bool SimulationRunner::Run(const uint64_t _iterations)
   if (!this->currentInfo.paused)
     this->realTimeWatch.Start();
 
-  // Variables for time keeping.
-  std::chrono::steady_clock::time_point startTime;
-  std::chrono::steady_clock::duration sleepTime;
-  std::chrono::steady_clock::duration actualSleep;
-
   this->running = true;
 
   // Create the world statistics publisher.
@@ -723,6 +718,9 @@ bool SimulationRunner::Run(const uint64_t _iterations)
   // Keep number of iterations requested by caller
   uint64_t processedIterations{0};
 
+  // record our starting realtime as a reference for future updates
+  auto lastRunIdealTime = std::chrono::steady_clock::now() - this->updatePeriod;
+
   // Execute all the systems until we are told to stop, or the number of
   // iterations is reached.
   while (this->running && (_iterations == 0 ||
@@ -733,31 +731,18 @@ bool SimulationRunner::Run(const uint64_t _iterations)
     // Update the step size and desired rtf
     this->UpdatePhysicsParams();
 
-    // Compute the time to sleep in order to match, as closely as possible,
-    // the update period.
-    sleepTime = 0ns;
-    actualSleep = 0ns;
-
-    sleepTime = std::max(0ns, this->prevUpdateRealTime +
-        this->updatePeriod - std::chrono::steady_clock::now() -
-        this->sleepOffset);
+    // use calculated target of where real time should be at this iteration and
+    // only sleep if we are ahead of the target and have time to spare
+    lastRunIdealTime += this->updatePeriod;
+    const auto now = std::chrono::steady_clock::now();
+    const auto sleepTime = std::max(0ns, lastRunIdealTime - now);
 
     // Only sleep if needed.
     if (sleepTime > 0ns)
     {
       GZ_PROFILE("Sleep");
-      // Get the current time, sleep for the duration needed to match the
-      // updatePeriod, and then record the actual time slept.
-      startTime = std::chrono::steady_clock::now();
       std::this_thread::sleep_for(sleepTime);
-      actualSleep = std::chrono::steady_clock::now() - startTime;
     }
-
-    // Exponentially average out the difference between expected sleep time
-    // and actual sleep time.
-    this->sleepOffset =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-          (actualSleep - sleepTime) * 0.01 + this->sleepOffset * 0.99);
 
     // Update time information. This will update the iteration count, RTF,
     // and other values.
